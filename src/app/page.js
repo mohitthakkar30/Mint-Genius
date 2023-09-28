@@ -1,124 +1,212 @@
-import Image from 'next/image'
-import { Inter } from 'next/font/google'
+"use client";
+import HamsterLoader from "@/components/HamsterLoader";
+import SplineObject from "@/components/SplineObject";
+import { Inter } from "next/font/google";
+import Confetti from "react-confetti";
+import { useState } from "react";
+import { ThirdwebStorage } from "@thirdweb-dev/storage";
+import { Configuration, OpenAIApi } from "openai";
+import Link from "next/link";
+import * as fcl from "@onflow/fcl"
+import { login } from "@/contexts/login";
+import {mintNFT} from "../flow/cadence/transactions/mint_nfts"
+import * as types from "@onflow/types";
+import getTotalSupply from "../flow/cadence/scripts/getTotalSupply"
 
-const inter = Inter({ subsets: ['latin'] })
+fcl.config({
+  "flow.network": "testnet",
+  "app.detail.title": "Mint-Genius",
+  "accessNode.api": "https://rest-testnet.onflow.org",
+  "app.detail.icon": "https://bafybeif5epbtdbks2rfwoowjyxmkc7j2x5gqkdp5nwhmdkipbzsypagfp4.ipfs.nftstorage.link/68.png",
+  "discovery.wallet": "https://fcl-discovery.onflow.org/testnet/authn",
+});
+
+const inter = Inter({ subsets: ["latin"] });
 
 export default function Home() {
+
+  const [name, setName] = useState("Your AI Mint");
+  const [desc, setDesc] = useState("Your AI Mint");
+  const [metadata, setMetadata] = useState("");
+  const [image, setImage] = useState(null);
+  const [loading, setLoading] = useState(0);
+  const [explosion, setExplosion] = useState(false);
+  const [disabled, setDisabled] = useState(true);
+  const [forged, setForged] = useState(null);
+  const [user, setUser] = useState();
+  const [url, setUrl] = useState();
+
+  const configuration = new Configuration({
+    apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
+  });
+
+  const openai = new OpenAIApi(configuration);
+
+  const logIn = async ()=>{
+    fcl.authenticate();
+    const res = await login();
+    setUser(res.addr)
+    return res.addr;
+  }
+  
+  const mint = async (metadata)=>{
+    const userAddress = logIn()
+    setLoading(3);
+
+    let _totalSupply;
+    try {
+      _totalSupply = await fcl.query({
+        cadence: `${getTotalSupply}`,
+      });
+    } catch (err) {
+      console.log(err);
+    }
+
+    const _id = parseInt(_totalSupply) + 1;
+
+
+    try {
+      const transactionId = await fcl.mutate({
+        cadence: `${mintNFT}`,
+        args: (arg, t) => [
+          arg(user, types.Address), //address to which the NFT should be minted
+          arg("MintGenius # " + _id.toString(), types.String),
+          arg("MintGenius NFTs on the Flow blockchain", types.String), // Description
+          arg(metadata,
+            types.String
+          ),
+        ],
+        proposer: fcl.currentUser,
+        payer: fcl.currentUser,
+        limit: 99,
+      });
+      console.log("Minting NFT now with transaction ID", transactionId);
+      const transaction = await fcl.tx(transactionId).onceSealed();
+      console.log(
+        "Testnet explorer link:",
+        `https://testnet.flowscan.org/transaction/${transactionId}`
+      );
+      console.log(transaction);
+      setLoading(0);
+      alert("NFT minted successfully!");
+    } catch (error) {
+      console.log(error);
+      alert("Click Login to Connect Wallet")
+      setLoading(0);
+      // alert("Error minting NFT, please check the console for error details!");
+    }
+  }
+
+  const createImage = async () => {
+
+    console.log("Creating Image");
+    setLoading(1);
+    try {
+      const response = await openai.createImage({
+        prompt: desc,
+        n: 1,
+        size: "1024x1024",
+      });
+      console.log(response);
+      const image_url = response.data.data[0].url;
+      console.log(image_url);
+      setImage(image_url);
+      setDisabled(false);
+      setForged(null);
+      return image_url;
+    } catch (e) {
+      alert(e);
+      console.log(e);
+    }
+  };
+
+  const uploading = async (e) => {
+    console.log(e);
+    setLoading(2);
+    const storage = new ThirdwebStorage();
+    const url = await storage.upload(e);
+    console.log(url);
+    setLoading(0);
+    setUrl(url)
+    return url;
+  };
+
+  const handleSendTransaction = async () => {
+        logIn()
+        const metadata = await uploading(image);
+        mint(metadata)
+    };
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-24">
-      <div className="z-10 w-full max-w-5xl items-center justify-between font-mono text-sm lg:flex">
-        <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-          Get started by editing&nbsp;
-          <code className="font-mono font-bold">src/app/page.js</code>
-        </p>
-        <div className="fixed bottom-0 left-0 flex h-48 w-full items-end justify-center bg-gradient-to-t from-white via-white dark:from-black dark:via-black lg:static lg:h-auto lg:w-auto lg:bg-none">
-          <a
-            className="pointer-events-none flex place-items-center gap-2 p-8 lg:pointer-events-auto lg:p-0"
-            href="https://vercel.com?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            By{' '}
-            <Image
-              src="/vercel.svg"
-              alt="Vercel Logo"
-              className="dark:invert"
-              width={100}
-              height={24}
-              priority
+    <div className="w-full h-full flex flex-col justify-between items-center py-10">
+      <SplineObject scene="https://prod.spline.design/LM16YpEsPBwXzoug/scene.splinecode" />
+      {(
+        <div className="w-full h-4/5 flex flex-row bg-black/20 md:w-2/3 gap-5 p-10 rounded-md z-1 fixed">
+          <div className="w-full h-full flex flex-col gap-5 justify-evenly text-lg">
+            <h1 className="text-5xl font-semibold text-white">MintGenius</h1>
+            <input
+              className="px-5 py-3 rounded-lg mt-0 text-gray-800 shadow-sm placeholder:text-gray-500 placeholder:dark:text-gray-200 dark:text-white"
+              id="name"
+              name="name"
+              placeholder="Name"
+              onChange={(e) => setName(e.target.value)}
             />
-          </a>
+            <textarea
+              className="px-5 py-3 rounded-lg mt-0 text-gray-800 shadow-sm placeholder:text-gray-500 placeholder:dark:text-gray-200 dark:text-white"
+              id="desc"
+              name="desc"
+              rows={8}
+              placeholder="Describe the image you want"
+              onChange={(e) => setDesc(e.target.value)}
+            />
+            <button
+              className="bg-blue-700 hover:bg-blue-800 text-white py-2 rounded-lg"
+              onClick={() => {
+                createImage();
+              }}
+            >
+              Generate {!disabled && "new"} AI Art
+            </button>
+            {/* <button onClick={awesome}>Tester</button> */}
+            {forged ? (
+              <Link href={forged}>
+                <div className="bg-blue-700 hover:bg-blue-800 text-white py-2 rounded-lg disabled:bg-gray-500 flex justify-center">
+                  View on Block Explorer
+                </div>
+              </Link>
+            ) : (
+              <button
+                className="bg-blue-700 hover:bg-blue-800 text-white py-2 rounded-lg disabled:bg-gray-500"
+                onClick={handleSendTransaction}
+                disabled={disabled}
+              >
+                Mint
+              </button>
+            )}
+          </div>
+          <img
+            src={image || "./out.png"}
+            onLoad={() => setLoading(0)}
+            alt="ai-art"
+          />
         </div>
-      </div>
-
-      <div className="relative flex place-items-center before:absolute before:h-[300px] before:w-[480px] before:-translate-x-1/2 before:rounded-full before:bg-gradient-radial before:from-white before:to-transparent before:blur-2xl before:content-[''] after:absolute after:-z-20 after:h-[180px] after:w-[240px] after:translate-x-1/3 after:bg-gradient-conic after:from-sky-200 after:via-blue-200 after:blur-2xl after:content-[''] before:dark:bg-gradient-to-br before:dark:from-transparent before:dark:to-blue-700 before:dark:opacity-10 after:dark:from-sky-900 after:dark:via-[#0141ff] after:dark:opacity-40 before:lg:h-[360px]">
-        <Image
-          className="relative dark:drop-shadow-[0_0_0.3rem_#ffffff70] dark:invert"
-          src="/next.svg"
-          alt="Next.js Logo"
-          width={180}
-          height={37}
-          priority
-        />
-      </div>
-
-      <div className="mb-32 grid text-center lg:mb-0 lg:grid-cols-4 lg:text-left">
-        <a
-          href="https://beta.nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`${inter.className} mb-3 text-2xl font-semibold`}>
-            Docs{' '}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p
-            className={`${inter.className} m-0 max-w-[30ch] text-sm opacity-50`}
-          >
-            Find in-depth information about Next.js features and API.
-          </p>
-        </a>
-
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800 hover:dark:bg-opacity-30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`${inter.className} mb-3 text-2xl font-semibold`}>
-            Learn{' '}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p
-            className={`${inter.className} m-0 max-w-[30ch] text-sm opacity-50`}
-          >
-            Learn about Next.js in an interactive course with&nbsp;quizzes!
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`${inter.className} mb-3 text-2xl font-semibold`}>
-            Templates{' '}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p
-            className={`${inter.className} m-0 max-w-[30ch] text-sm opacity-50`}
-          >
-            Explore the Next.js 13 playground.
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`${inter.className} mb-3 text-2xl font-semibold`}>
-            Deploy{' '}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p
-            className={`${inter.className} m-0 max-w-[30ch] text-sm opacity-50`}
-          >
-            Instantly deploy your Next.js site to a shareable URL with Vercel.
-          </p>
-        </a>
-      </div>
-    </main>
-  )
+      )}
+      {loading === 1 && (
+        <div className="w-1/3 h-1/3 flex justify-center items-center absolute top-1/3 left-1/3 z-10">
+          <HamsterLoader loaderTitle="Forging the Image" />
+        </div>
+      )}
+      {loading === 2 && (
+        <div className="w-1/3 h-1/3 flex justify-center items-center absolute top-1/3 left-1/3 z-10">
+          <HamsterLoader loaderTitle="Uploading to IPFS" />
+        </div>
+      )}
+       {loading === 3 && (
+        <div className="w-1/3 h-1/3 flex justify-center items-center absolute top-1/3 left-1/3 z-10">
+          <HamsterLoader loaderTitle="Minting NFT" />
+        </div>
+      )}
+      {explosion && <Confetti className="fullscreen" />}
+    </div>
+  );
 }
